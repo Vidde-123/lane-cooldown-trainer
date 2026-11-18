@@ -1,0 +1,13 @@
+{
+  "name": "Lane Cooldown Trainer",
+  "short_name": "Lane CDs",
+  "description": "Learn and scout League of Legends lane matchup cooldowns.",
+  "start_url": "./index.html#/scout",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0B0C0E",
+  "theme_color": "#0B0C0E",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

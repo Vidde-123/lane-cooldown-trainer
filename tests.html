@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Tests</title>
+<style>body{font:14px Consolas,monospace;background:#0B0C0E;color:#E7E8EA;padding:16px}.p{color:#3DD68C}.f{color:#FF5C5C}</style></head>
+<body><h3>Lane Cooldown Trainer tests</h3><pre id="out"></pre>
+<script src="data-champions.js"></script><script src="data-meta.js"></script><script src="engine.js"></script>
+<script>
+(async function () {
+  var L = window.LCT, out = document.getElementById('out'), pass = 0, fail = 0;
+  function t(name, ok, extra) { (ok ? pass++ : fail++); out.innerHTML += '<span class="' + (ok ? 'p' : 'f') + '">' + (ok ? 'PASS ' : 'FAIL ') + name + (ok ? '' : ' ' + (extra || '')) + '</span>\n'; }
+  var CD = L.Cooldowns;
+  t('haste 0', Math.abs(CD.effective(100, 0) - 100) < 1e-9);
+  t('haste 15', Math.abs(CD.effective(115, 15) - 100) < 1e-9);
+  t('haste 30', Math.abs(CD.effective(130, 30) - 100) < 1e-9);
+  ['QWE', 'EQW', 'WEQ'].forEach(function (o) {
+    var r = CD.ranksAtLevel(18, o);
+    t('lv18 ranks ' + o, r[o[0]] === 5 && r[o[1]] === 5 && r[o[2]] === 5 && r.R === 3, JSON.stringify(r));
+  });
+  var r6 = CD.ranksAtLevel(6, 'QEW');
+  t('lv6 QEW = Q3 W1 E1 R1', r6.Q === 3 && r6.W === 1 && r6.E === 1 && r6.R === 1, JSON.stringify(r6));
+  t('R unlearned at 5', CD.ranksAtLevel(5, 'QWE').R === 0);
+  t('fmt', CD.fmt(9.5) === '9.5s' && CD.fmt(null) === '\u2014' && CD.fmt(12) === '12s');
+  t('at clamps rank', CD.at([10, 8], 5, 0) === 8 && CD.at([], 1, 0) === null && CD.at([0], 1, 0) === null);
+  // SRS
+  t('nextBox again', L.SRS.nextBox(4, 'again') === 1);
+  t('nextBox new good', L.SRS.nextBox(0, 'good') === 2);
+  t('nextBox new easy', L.SRS.nextBox(0, 'easy') === 3);
+  t('nextBox cap', L.SRS.nextBox(5, 'easy') === 5);
+  // Mastery tiers (uses isolated keys)
+  L.SRS.reset();
+  var tiers = L.Mastery.tiers('MIDDLE', 'all');
+  t('mid has 5 tiers of 5', tiers.length === 5 && tiers.every(function (x) { return x.length === 5; }), tiers.length);
+  t('only tier 1 unlocked at start', L.Mastery.unlockedCount('MIDDLE', 'all', false) === 1);
+  tiers[0].forEach(function (c) { L.Mastery.cardIds(c, false).forEach(function (id) { L.SRS.rate(id, 'easy'); }); });
+  t('tier 2 unlocks after mastery', L.Mastery.unlockedCount('MIDDLE', 'all', false) === 2);
+  L.SRS.reset();
+  t('every role has curated pool', L.ROLES.every(function (r) { return L.Mastery.pool(r.id, 'all').length >= 10; }));
+  t('brackets fall back', L.Mastery.pool('TOP', 'high').length === L.Mastery.pool('TOP', 'all').length);
+  t('every curated champ has keys + valid order', Object.keys(LCT_CHAMPS).every(function (id) { var c = LCT_CHAMPS[id]; return c.keys.length && /^[QWE]{3}$/.test(c.maxOrder) && new Set(c.maxOrder).size === 3; }));
+  // Data Dragon (network)
+  try {
+    await L.DD.init();
+    t('ddragon version ' + L.DD.ver, /^\d+\.\d+/.test(L.DD.ver) || /^\d+\.S\d/.test(L.DD.ver) || !!L.DD.ver);
+    var missing = [];
+    Object.keys(LCT_CHAMPS).forEach(function (id) { if (!L.DD.byId[id]) missing.push(id); });
+    Object.keys(LCT_META).forEach(function (r) { var o = LCT_META[r]; if (o.all) o.all.forEach(function (id) { if (!L.DD.byId[id]) missing.push(r + ':' + id); }); });
+    t('all curated + meta ids exist in Data Dragon', missing.length === 0, missing.join(','));
+    var s = L.Search.query('sy', L.Mastery.pool('MIDDLE', 'all'), 3)[0]; t('search sy (mid boost) -> Syndra', s && s.id === 'Syndra', s && s.id);
+    t('alias tf', L.Search.query('tf', [], 1)[0].id === 'TwistedFate');
+    t('alias j4', L.Search.query('j4', [], 1)[0].id === 'JarvanIV');
+    var asol = L.Search.query('as', [], 5).map(function (x) { return x.id; }); t('as finds AurelionSol', asol.indexOf('AurelionSol') >= 0, asol.join(','));
+    var k = await L.Kit.get('Syndra'); var e = k.spells.filter(function (x) { return x.slot === 'E'; })[0];
+    t('Syndra kit has 4 spells + E cooldown array', k.spells.length === 4 && e.cd.length >= 1 && e.cd[0] > 0, JSON.stringify(e && e.cd));
+    // every curated champ: 4 spells with cooldown arrays, keys' slots exist
+    var bad = [];
+    for (var id of Object.keys(LCT_CHAMPS)) { try { var kk = await L.Kit.get(id); if (kk.spells.length !== 4 || kk.keys.some(function (x) { return !kk.spells.some(function (s) { return s.slot === x.slot; }); })) bad.push(id); } catch (err) { bad.push(id + '!'); } }
+    t('all curated kits load (4 spells, key slots valid)', bad.length === 0, bad.join(','));
+  } catch (e) { t('data dragon reachable', false, e.message); }
+  out.innerHTML += '\n' + pass + ' passed, ' + fail + ' failed\n';
+  document.title = fail ? 'FAIL ' + fail : 'ALL PASS ' + pass;
+  document.body.dataset.result = document.title;
+})();
+</script></body></html>
